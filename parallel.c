@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <mpi.h>
 #include <stdlib.h>
+#include <math.h>
+
 
 int partition(int * arr, int p, int r) {
     int pivot = arr[p];
@@ -63,9 +65,7 @@ int main(int argc, char* argv[]) {
     MPI_Scatter(arr, workload, MPI_INT, myarr, workload, MPI_INT, 0, MPI_COMM_WORLD);
 
     quicksort(myarr, 0, workload - 1);
-    for(int i = 0; i < workload; i++){
-        printf("myid: %d, arr %dth element: %d\n", myid, i, myarr[i]);
-    }
+ 
 
     int median;
     if( workload % 2 != 0) {
@@ -76,7 +76,6 @@ int main(int argc, char* argv[]) {
     }
     MPI_Barrier(MPI_COMM_WORLD);
     int * medians = malloc(numprocs * sizeof(int));
-    printf("myid: %d, my median: %d\n", myid, median);
     MPI_Allgather(&median, 1, MPI_INT, medians, 1, MPI_INT, MPI_COMM_WORLD);
     int medianOfMedians;
     
@@ -86,11 +85,62 @@ int main(int argc, char* argv[]) {
     else {
         medianOfMedians = (medians[numprocs/2] + medians[(numprocs / 2) - 1]) / 2;
     }
+    printf("mm:%d\n", medianOfMedians);
 
-    printf("median of medians is:%d\n", medianOfMedians);
+    int dimension = 3;
+    int mask = pow(2, dimension - 1);
+    int myPartner = myid ^mask;
+    int maskedId = myid & mask;
+    int color, sublistCount = 0, index;
+    int key = myid;
+    MPI_Status status;
+    if(maskedId == 0) {
+        color = 1;
+        for(int i = workload - 1; i >= 0; i--){
+            if(myarr[i] >= medianOfMedians){
+                sublistCount++;
+                index = i;
+            }
+            else {
+                break;
+            }
+        }
+
+        MPI_Send(&sublistCount, 1, MPI_INT, myPartner, 0, MPI_COMM_WORLD);
+        MPI_Send(&myarr[index], sublistCount, MPI_INT, myPartner, 1, MPI_COMM_WORLD);
+        printf("my id:%d, sent to my partner %d\n", myid, myPartner);
+        for (int i = index; i < index + sublistCount; i++)
+        {
+            printf("%d ", myarr[i]);
+        }
+        printf("\n");
 
 
+    }
+    else {
+        color = 0;
+        MPI_Recv(&sublistCount, 1, MPI_INT, myPartner, 0, MPI_COMM_WORLD, &status);
+        int * recvd = malloc(sublistCount * sizeof(int));
+        MPI_Recv(&recvd[0], sublistCount, MPI_INT, myPartner, 1, MPI_COMM_WORLD, &status);
+        printf("received from my partner %d\n", myPartner);
+        for (int i = 0; i < sublistCount; i++)
+        {
+            printf("%d ", recvd[i]);
+        }
+        printf("\n");
+        free(recvd);
 
+
+    }
+
+    /* MPI_Comm new_comm;
+    MPI_Comm_split(MPI_COMM_WORLD, color, key, &new_comm);
+    int newcommsize, newid;
+
+    MPI_Comm_size(new_comm, &newcommsize);
+    MPI_Comm_rank(new_comm, &newid);
+    printf("myid: %d, commsize: %d\n", newid, newcommsize); */
+    
     if(myid == 0) {
         free(arr);
     }
