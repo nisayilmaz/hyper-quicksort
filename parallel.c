@@ -20,6 +20,8 @@ int partition(int * arr, int p, int r) {
             int temp = arr[i];
             arr[i] = arr[j];
             arr[j] = temp;
+            j--;
+
         }
         else return j;
 
@@ -27,12 +29,14 @@ int partition(int * arr, int p, int r) {
 }
 
 void quicksort(int * arr, int p, int r){
+
     if(p < r) {
     
         int q = partition(arr, p, r);
         quicksort(arr, p, q);
         quicksort(arr, q + 1, r);
     }
+    else return;
    
 }
 
@@ -42,6 +46,7 @@ int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+    MPI_Status status;
     int * arr;
     int size;
 
@@ -64,9 +69,9 @@ int main(int argc, char* argv[]) {
     int * myarr = malloc(workload * sizeof(int));
     MPI_Scatter(arr, workload, MPI_INT, myarr, workload, MPI_INT, 0, MPI_COMM_WORLD);
 
-    quicksort(myarr, 0, workload - 1);
- 
 
+
+    quicksort(myarr, 0, workload - 1); 
     int median;
     if( workload % 2 != 0) {
         median = myarr[(workload - 1) / 2];
@@ -75,6 +80,7 @@ int main(int argc, char* argv[]) {
         median = (myarr[workload/2] + myarr[(workload / 2) - 1]) / 2;
     }
     MPI_Barrier(MPI_COMM_WORLD);
+
     int * medians = malloc(numprocs * sizeof(int));
     MPI_Allgather(&median, 1, MPI_INT, medians, 1, MPI_INT, MPI_COMM_WORLD);
     int medianOfMedians;
@@ -87,15 +93,17 @@ int main(int argc, char* argv[]) {
     }
     printf("mm:%d\n", medianOfMedians);
 
-    int dimension = 3;
+    int dimension = 2;
     int mask = pow(2, dimension - 1);
-    int myPartner = myid ^mask;
+    int myPartner = myid ^ mask;
     int maskedId = myid & mask;
-    int color, sublistCount = 0, index;
+    int color, sublistCount = 0, index, recvdSublistCount = 0,newSize;
     int key = myid;
-    MPI_Status status;
+    int * recvd = NULL;
+    int * temp = NULL;
     if(maskedId == 0) {
-        color = 1;
+        color = 0;
+        index = workload;
         for(int i = workload - 1; i >= 0; i--){
             if(myarr[i] >= medianOfMedians){
                 sublistCount++;
@@ -108,31 +116,68 @@ int main(int argc, char* argv[]) {
 
         MPI_Send(&sublistCount, 1, MPI_INT, myPartner, 0, MPI_COMM_WORLD);
         MPI_Send(&myarr[index], sublistCount, MPI_INT, myPartner, 1, MPI_COMM_WORLD);
-        printf("my id:%d, sent to my partner %d\n", myid, myPartner);
-        for (int i = index; i < index + sublistCount; i++)
-        {
-            printf("%d ", myarr[i]);
-        }
-        printf("\n");
+        MPI_Recv(&recvdSublistCount, 1, MPI_INT, myPartner, 2, MPI_COMM_WORLD, &status);
+        int * recvd = malloc(recvdSublistCount * sizeof(int));
+        MPI_Recv(&recvd[0], recvdSublistCount, MPI_INT, myPartner, 3, MPI_COMM_WORLD, &status);
 
+        newSize = index + recvdSublistCount;
+        temp = malloc(newSize * sizeof(int));
+        int newArrIndex = 0;
+        for(int i = 0; i < index; i++) {
+            temp[newArrIndex] = myarr[i];
+            newArrIndex++;
+        }
+        for(int i = 0; i < recvdSublistCount; i++) {
+            temp[newArrIndex] = recvd[i];
+            newArrIndex++;
+        }
+        for(int i= 0; i < newSize; i++) {
+            printf("id: %d, %dth element: %d \n", myid, i, temp[i]);
+        } 
+        if(newSize == 0) {
+            printf("id: %d empty \n", myid);
+
+        }   
+        free(recvd);
 
     }
     else {
-        color = 0;
-        MPI_Recv(&sublistCount, 1, MPI_INT, myPartner, 0, MPI_COMM_WORLD, &status);
-        int * recvd = malloc(sublistCount * sizeof(int));
-        MPI_Recv(&recvd[0], sublistCount, MPI_INT, myPartner, 1, MPI_COMM_WORLD, &status);
-        printf("received from my partner %d\n", myPartner);
-        for (int i = 0; i < sublistCount; i++)
-        {
-            printf("%d ", recvd[i]);
+        color = 1;
+        index = -1;
+        MPI_Recv(&recvdSublistCount, 1, MPI_INT, myPartner, 0, MPI_COMM_WORLD, &status);
+        recvd = malloc(recvdSublistCount * sizeof(int));
+        MPI_Recv(&recvd[0], recvdSublistCount, MPI_INT, myPartner, 1, MPI_COMM_WORLD, &status);
+
+        for(int i = 0; i < workload; i++){
+            if(myarr[i] < medianOfMedians){
+                sublistCount++; 
+                index = i;
+            }
+            else {
+                break;
+            }
+        }       
+        MPI_Send(&sublistCount, 1, MPI_INT, myPartner, 2, MPI_COMM_WORLD);
+        MPI_Send(&myarr[0], sublistCount, MPI_INT, myPartner, 3, MPI_COMM_WORLD);
+        newSize = workload - (index + 1) + recvdSublistCount;
+        temp = malloc(newSize * sizeof(int));
+        int newArrIndex = 0;
+        for(int i = index + 1; i < workload; i++) {
+            temp[newArrIndex] = myarr[i];
+            newArrIndex++;
         }
-        printf("\n");
-        free(recvd);
-
-
+        for(int i = 0; i < recvdSublistCount; i++) {
+            temp[newArrIndex] = recvd[i];
+            newArrIndex++;
+        }
+        for(int i= 0; i < newSize; i++) {
+            printf("id: %d, %dth element: %d \n", myid, i, temp[i]);
+        }       
+        free(recvd); 
     }
 
+    free(myarr);
+    myarr = temp;
     /* MPI_Comm new_comm;
     MPI_Comm_split(MPI_COMM_WORLD, color, key, &new_comm);
     int newcommsize, newid;

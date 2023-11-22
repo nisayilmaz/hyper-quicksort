@@ -16,6 +16,7 @@ int partition(int * arr, int p, int r) {
             int temp = arr[i];
             arr[i] = arr[j];
             arr[j] = temp;
+            j--;
         }
         else return j;
 
@@ -23,17 +24,19 @@ int partition(int * arr, int p, int r) {
 }
 
 void quicksort(int * arr, int p, int r){
+    printf("p: %d, r: %d", p, r);
     if(p < r) {
     
         int q = partition(arr, p, r);
+        printf("pivot: %d", q);
         quicksort(arr, p, q);
         quicksort(arr, q + 1, r);
     }
 }
 
 int main() {
-    int arr[] = {4,7,2,8,1,9,5};
-    quicksort(arr,0,6);
+    int arr[] = {1,3,2,4,3,2};
+    quicksort(arr,0,5);
     for (int i = 0; i < 7; i++)
     {
         printf("%d\n", arr[i]);
