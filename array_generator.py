@@ -6,7 +6,7 @@ if len(sys.argv) != 2:
     print("n : number of arr elements")
     exit()
 size = int(sys.argv[1])
-random_arr = random.sample(range(1, size * 5), size)
+random_arr = random.sample(range(1, size  + 10), size)
 
 with open("input.txt", "w") as f:
     f.write("\n".join(str(item) for item in random_arr))

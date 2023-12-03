@@ -1,10 +1,10 @@
-all: parallel sequential
+all: hyperqsort qsort
 
-parallel:
-	mpicc parallel.c -o parallel -lm
+hyperqsort:
+	mpicc hyperqsort.c -o hyperqsort -lm
 
-sequential:
-	gcc sequential.c -o sequential
+qsort:
+	gcc qsort.c -o qsort
 
 clean:
-	rm -rf parallel sequential
+	rm -rf hyperqsort qsort 

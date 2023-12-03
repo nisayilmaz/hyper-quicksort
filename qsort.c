@@ -34,8 +34,25 @@ void quicksort(int * arr, int p, int r){
     }
 }
 
-int main() {
-    FILE *fileptr = fopen("input.txt", "r");
+void writeArray(int * arr, int size, char filename[30]){
+    FILE * fileptr = fopen(filename, "w");
+    for(int i = 0; i < size; i++){
+        fprintf(fileptr, "%d", arr[i]);
+        if (i != size - 1){
+            fprintf(fileptr, "\n");        
+        }
+        
+    } 
+    fclose(fileptr);
+}
+
+int main(int argc, char* argv[]) {
+    FILE *fileptr = fopen(argv[1], "r");
+    if (fileptr == NULL) { 
+            printf("\n The file could "
+                "not be opened.\n"); 
+            exit(1); 
+    } 
     int * arr = NULL;
     int num;
     int size = 0;
@@ -53,16 +70,16 @@ int main() {
     gettimeofday(&start_time, NULL);
     
     quicksort(arr,0,size - 1);
-    
-    gettimeofday(&end_time, NULL);
-    elapsed_time = (end_time.tv_sec - start_time.tv_sec) +
-                   (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
-    printf("Serial implementation lasted %f seconds.\n", elapsed_time);
-    
+    writeArray(arr, size, argv[2]);
     
     /* for (int i = 0; i < size; i++){
         printf("%d ", arr[i]);
     } */
     free(arr);
+    gettimeofday(&end_time, NULL);
+    elapsed_time = (end_time.tv_sec - start_time.tv_sec) +
+                   (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
+    printf("Serial implementation lasted %f seconds.\n", elapsed_time);
+    
     return 0;
 }

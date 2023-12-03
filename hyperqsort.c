@@ -2,6 +2,7 @@
 #include <mpi.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 
 int partition(int * arr, int p, int r) {
@@ -40,21 +41,42 @@ void quicksort(int * arr, int p, int r){
    
 }
 
-int main(int argc, char* argv[]) {
+void writeArray(int * arr, int size, char filename[30]){
+    FILE * fileptr = fopen(filename, "w");
+    for(int i = 0; i < size; i++){
+        fprintf(fileptr, "%d", arr[i]);
+        if (i != size - 1){
+            fprintf(fileptr, "\n");        
+        }
+        
+    } 
+    fclose(fileptr);
+}
 
-    int myid, numprocs, myoriginalid;
+int main(int argc, char* argv[]) {
+    
+    int dimension = log2(atoi(argv[2])); 
+
+    int myid, numprocs, totalNum, myoriginalid;
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
     MPI_Comm_rank(MPI_COMM_WORLD, &myid);
-    MPI_Comm curr_comm = MPI_COMM_WORLD;
+    MPI_Comm curr_comm = MPI_COMM_WORLD, new_comm;
     MPI_Status status;
     int * arr;
     int size;
     myoriginalid = myid;
+    totalNum = numprocs;
     double start, end;
 
     if(myid == 0) {
-        FILE *fileptr = fopen("input.txt", "r");
+        FILE *fileptr = fopen(argv[1], "r");
+        if (fileptr == NULL) { 
+            printf("\n The file could "
+                "not be opened.\n"); 
+            exit(1); 
+        } 
+  
         arr = NULL;
         int num;
         size = 0;
@@ -63,7 +85,6 @@ int main(int argc, char* argv[]) {
             arr = realloc(arr, (size + 1) * sizeof(int));
             arr[size++] = num;
         }
-
         fclose(fileptr);
     }
 
@@ -72,41 +93,34 @@ int main(int argc, char* argv[]) {
     int workload = size / numprocs;
     int * myarr = malloc(workload * sizeof(int));
     MPI_Scatter(arr, workload, MPI_INT, myarr, workload, MPI_INT, 0, MPI_COMM_WORLD);
-    int dimension = 2;
-    MPI_Comm new_comm;
     int * medians;
+    int mask, myPartner, maskedId, color, sublistCount, index, recvdSublistCount, newSize, key, medianOfMedians,median;
 
-    while(numprocs >= 1){
-        quicksort(myarr, 0, workload - 1); 
-        if(numprocs == 1) break;
+    int * recvd = NULL;
+    int * temp = NULL;
 
-        int median;
+    quicksort(myarr, 0, workload - 1); 
+    while(numprocs > 1){
         if( workload % 2 != 0) {
             median = myarr[(workload - 1) / 2];
         }
         else {
             median = (myarr[workload/2] + myarr[(workload / 2) - 1]) / 2;
         }
-        MPI_Barrier(curr_comm);
 
         medians = malloc(numprocs * sizeof(int));
         MPI_Allgather(&median, 1, MPI_INT, medians, 1, MPI_INT, curr_comm);
-        int medianOfMedians;
+        quicksort(medians, 0, numprocs - 1);
+        medianOfMedians = (medians[numprocs/2] + medians[(numprocs / 2) - 1]) / 2;
         
-        if( numprocs % 2 != 0) {
-            medianOfMedians = medians[(numprocs - 1) / 2];
-        }
-        else {
-            medianOfMedians = (medians[numprocs/2] + medians[(numprocs / 2) - 1]) / 2;
-        }
-
-        int mask = pow(2, dimension - 1);
-        int myPartner = myid ^ mask;
-        int maskedId = myid & mask;
-        int color, sublistCount = 0, index, recvdSublistCount = 0,newSize;
-        int key = myid;
-        int * recvd = NULL;
-        int * temp = NULL;
+        mask = pow(2, dimension - 1);
+        myPartner = myid ^ mask;
+        maskedId = myid & mask;
+        sublistCount = 0;
+        recvdSublistCount = 0;
+        key = myid;
+        recvd = NULL;
+        temp = NULL;
         if(maskedId == 0) {
             color = 0;
             index = workload;
@@ -129,15 +143,30 @@ int main(int argc, char* argv[]) {
             newSize = index + recvdSublistCount;
             temp = malloc(newSize * sizeof(int));
             int newArrIndex = 0;
-            for(int i = 0; i < index; i++) {
-                temp[newArrIndex] = myarr[i];
+            int myArrIndex = 0, recvdArrayIndex = 0;
+            while(myArrIndex < index && recvdArrayIndex < recvdSublistCount){
+                if(myarr[myArrIndex] <= recvd[recvdArrayIndex] ){
+                    temp[newArrIndex] = myarr[myArrIndex];
+                    myArrIndex++;
+                    newArrIndex++;
+                }
+                else{
+                    temp[newArrIndex] = recvd[recvdArrayIndex];
+                    recvdArrayIndex++;
+                    newArrIndex++;
+                }
+            }
+            while (myArrIndex < index){
+                temp[newArrIndex] = myarr[myArrIndex];
+                myArrIndex++;
                 newArrIndex++;
             }
-            for(int i = 0; i < recvdSublistCount; i++) {
-                temp[newArrIndex] = recvd[i];
+            while(recvdArrayIndex < recvdSublistCount){
+                temp[newArrIndex] = recvd[recvdArrayIndex];
+                recvdArrayIndex++;
                 newArrIndex++;
             }
-            
+          
             free(recvd);
 
         }
@@ -162,15 +191,31 @@ int main(int argc, char* argv[]) {
             newSize = workload - (index + 1) + recvdSublistCount;
             temp = malloc(newSize * sizeof(int));
             int newArrIndex = 0;
-            for(int i = index + 1; i < workload; i++) {
-                temp[newArrIndex] = myarr[i];
+            int myArrIndex = index + 1, recvdArrayIndex = 0;
+
+            while(myArrIndex < workload && recvdArrayIndex < recvdSublistCount){
+                if(myarr[myArrIndex] <= recvd[recvdArrayIndex] ){
+                    temp[newArrIndex] = myarr[myArrIndex];
+                    myArrIndex++;
+                    newArrIndex++;
+                }
+                else{
+                    temp[newArrIndex] = recvd[recvdArrayIndex];
+                    recvdArrayIndex++;
+                    newArrIndex++;
+                }
+            }
+            while (myArrIndex < workload){
+                temp[newArrIndex] = myarr[myArrIndex];
+                myArrIndex++;
                 newArrIndex++;
             }
-            for(int i = 0; i < recvdSublistCount; i++) {
-                temp[newArrIndex] = recvd[i];
+            while(recvdArrayIndex < recvdSublistCount){
+                temp[newArrIndex] = recvd[recvdArrayIndex];
+                recvdArrayIndex++;
                 newArrIndex++;
             }
-               
+
             free(recvd); 
         }
 
@@ -182,7 +227,6 @@ int main(int argc, char* argv[]) {
         }
 
         curr_comm = new_comm;
-        int newcommsize, newid;
 
         MPI_Comm_size(curr_comm, &numprocs);
         MPI_Comm_rank(curr_comm, &myid);
@@ -190,32 +234,35 @@ int main(int argc, char* argv[]) {
         workload = newSize;
         free(medians);
     }
-    //printf("myid: %d, commsize: %d\n", newid, newcommsize);
-    MPI_Comm_free(&curr_comm);
+    char idStr[10];
+    sprintf(idStr, "%d.txt", myoriginalid);
+    char outName[20] = "output";
+    strcat(outName, idStr);
 
-    if(myoriginalid == 0) {
-        free(arr);
-    }
-    arr = malloc(size * sizeof(int));
-    int *recv_counts = malloc(size * sizeof(int));
+    writeArray(myarr, workload, outName);
+    int *recv_counts = malloc(totalNum * sizeof(int));
     MPI_Gather(&workload, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    int *displacements = malloc(size * sizeof(int));
-    displacements[0] = 0;
-    for (int i = 1; i < size; ++i) {
-        displacements[i] = displacements[i - 1] + recv_counts[i - 1];
-    }
-    MPI_Gatherv(myarr, workload, MPI_INT, arr, recv_counts, displacements, MPI_INT, 0, MPI_COMM_WORLD);
-    end = MPI_Wtime();
-
+    int *displacements = NULL;
     if(myoriginalid == 0) {
-        printf("Parallel implementation with %d processes lasted %f seconds.\n", numprocs, end - start);
-
-        for(int i = 0; i < size; i++) {
-            printf("%d ", arr[i]);
+        displacements = malloc(totalNum * sizeof(int));
+        displacements[0] = 0;
+        for (int i = 1; i < totalNum; ++i) {
+            displacements[i] = displacements[i - 1] + recv_counts[i - 1] ;
         }
     }
-    free(arr);
+    MPI_Gatherv(myarr, workload, MPI_INT, arr, recv_counts, displacements, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if(myoriginalid == 0) {
+        end = MPI_Wtime();
+        printf("Parallel implementation with %d processes lasted %f seconds.\n", totalNum, end - start);
+        /* for(int i = 0; i < size; i++) {
+            printf("%d ", arr[i]);
+        } */
+        writeArray(arr, size, argv[3]);
+        free(arr);
+
+    }
+    MPI_Comm_free(&curr_comm);
     free(recv_counts);
     free(displacements);
     free(myarr);
